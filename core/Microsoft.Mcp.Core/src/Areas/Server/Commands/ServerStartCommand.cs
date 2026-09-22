@@ -51,6 +51,8 @@ namespace Microsoft.Mcp.Core.Areas.Server.Commands;
     ReadOnly = true)]
 public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
 {
+    internal const string HttpBasePathEnvironmentVariable = "MCP_HTTP_BASE_PATH";
+
     private static readonly string[] s_stdioHostBuilderArgs =
     [
         $"--contentRoot={AppContext.BaseDirectory}",
@@ -394,6 +396,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
     private IHost CreateHttpHost(ServerStartOptions serverOptions)
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder(s_httpWebApplicationOptions);
+        string httpBasePath = GetHttpBasePath();
 
         // Read once at host setup time — this env var is process-wide and effectively static,
         // so there is no need to re-read it on every incoming request.
@@ -438,7 +441,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
                             {
                                 HttpRequest request = context.Request;
                                 string scheme = GetSchemeForOAuthProtectedResourceMetadata(request, enableForwardedHeaders);
-                                string resourceMetadataUrl = $"{scheme}://{request.Host}/.well-known/oauth-protected-resource";
+                                string resourceMetadataUrl = BuildHttpUrl(request, scheme, "/.well-known/oauth-protected-resource");
 
                                 context.Response.StatusCode = 401;
 
@@ -503,6 +506,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
 
         WebApplication app = builder.Build();
 
+        app.UsePathBase(httpBasePath);
         UseHttpsRedirectionIfEnabled(app);
 
         // Configure middleware pipeline
@@ -522,7 +526,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
                 MicrosoftIdentityApplicationOptions azureAdOptions = azureAdOptionsMonitor.Get(JwtBearerDefaults.AuthenticationScheme);
                 HttpRequest request = context.Request;
                 string scheme = GetSchemeForOAuthProtectedResourceMetadata(request, enableForwardedHeaders);
-                string baseUrl = $"{scheme}://{request.Host}";
+                string baseUrl = BuildHttpUrl(request, scheme, string.Empty);
                 string? clientId = azureAdOptions.ClientId;
                 string? tenantId = azureAdOptions.TenantId;
                 string instance = azureAdOptions.Instance?.TrimEnd('/') ?? "https://login.microsoftonline.com";
@@ -620,6 +624,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
 
         WebApplication app = builder.Build();
 
+        app.UsePathBase(GetHttpBasePath());
         UseHttpsRedirectionIfEnabled(app);
 
         // Configure middleware pipeline
@@ -629,6 +634,37 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
         app.MapMcp();
 
         return app;
+    }
+
+    internal static string GetHttpBasePath()
+    {
+        return NormalizeHttpBasePath(Environment.GetEnvironmentVariable(HttpBasePathEnvironmentVariable));
+    }
+
+    internal static string NormalizeHttpBasePath(string? configuredPath)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return string.Empty;
+        }
+
+        string path = configuredPath.Trim();
+        if (!path.StartsWith('/') ||
+            path.Contains('\\') ||
+            path.Contains('?') ||
+            path.Contains('#'))
+        {
+            throw new InvalidOperationException(
+                $"The {HttpBasePathEnvironmentVariable} environment variable must be an HTTP path starting with '/', without query or fragment components.");
+        }
+
+        return path.TrimEnd('/');
+    }
+
+    private static string BuildHttpUrl(HttpRequest request, string scheme, string suffix)
+    {
+        string path = request.PathBase.ToString().TrimEnd('/');
+        return $"{scheme}://{request.Host}{path}{suffix}";
     }
 
     /// <summary>
