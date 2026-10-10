@@ -441,7 +441,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
                             {
                                 HttpRequest request = context.Request;
                                 string scheme = GetSchemeForOAuthProtectedResourceMetadata(request, enableForwardedHeaders);
-                                string resourceMetadataUrl = BuildHttpUrl(request, scheme, "/.well-known/oauth-protected-resource");
+                                string resourceMetadataUrl = BuildHttpUrl(request, scheme, "/.well-known/oauth-protected-resource", httpBasePath);
 
                                 context.Response.StatusCode = 401;
 
@@ -526,7 +526,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
                 MicrosoftIdentityApplicationOptions azureAdOptions = azureAdOptionsMonitor.Get(JwtBearerDefaults.AuthenticationScheme);
                 HttpRequest request = context.Request;
                 string scheme = GetSchemeForOAuthProtectedResourceMetadata(request, enableForwardedHeaders);
-                string baseUrl = BuildHttpUrl(request, scheme, string.Empty);
+                string baseUrl = BuildHttpUrl(request, scheme, string.Empty, httpBasePath);
                 string? tenantId = azureAdOptions.TenantId;
                 string instance = azureAdOptions.Instance?.TrimEnd('/') ?? "https://login.microsoftonline.com";
 
@@ -660,12 +660,12 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
         return path.TrimEnd('/');
     }
 
-    internal static string BuildHttpUrl(HttpRequest request, string scheme, string suffix)
+    internal static string BuildHttpUrl(HttpRequest request, string scheme, string suffix, string? configuredBasePath = null)
     {
         string authority = new UriBuilder(scheme, request.Host.Host, request.Host.Port ?? -1)
             .Uri
             .GetLeftPart(UriPartial.Authority);
-        string path = request.PathBase.ToUriComponent().TrimEnd('/');
+        string path = (configuredBasePath ?? request.PathBase.ToUriComponent()).TrimEnd('/');
         return $"{authority}{path}{suffix}";
     }
 

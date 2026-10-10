@@ -60,6 +60,17 @@ public sealed class ServerStartCommandValidationTests
             ServerStartCommand.BuildHttpUrl(context.Request, "https", string.Empty));
     }
 
+    [Fact]
+    public void BuildHttpUrl_UsesConfiguredBasePathWhenMetadataRequestHasNoPath()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Host = new HostString("azuremcp.grdc.com.au", 443);
+
+        Assert.Equal(
+            "https://azuremcp.grdc.com.au/mcp",
+            ServerStartCommand.BuildHttpUrl(context.Request, "https", string.Empty, "/mcp"));
+    }
+
     private static ValidationResult Validate(ServerStartOptions options)
     {
         var command = new ServerStartCommand();

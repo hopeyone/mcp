@@ -73,7 +73,9 @@ To host the MCP endpoint below a path such as `/mcp`, set
 bake it into a derived image with
 `docker build --build-arg MCP_HTTP_BASE_PATH=/mcp`. The MCP endpoint, OAuth
 protected-resource metadata endpoint, and `resource_metadata` challenge URI
-will all include the configured path.
+will all include the configured path. The metadata document also advertises the
+configured resource path when requested from the root discovery URL
+`/.well-known/oauth-protected-resource`, as well as from the prefixed URL.
 
 > [!NOTE]
 > The Azure MCP Server image ENTRYPOINT in the repository is:
