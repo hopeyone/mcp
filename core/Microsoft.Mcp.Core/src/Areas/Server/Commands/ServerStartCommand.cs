@@ -52,6 +52,7 @@ namespace Microsoft.Mcp.Core.Areas.Server.Commands;
 public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
 {
     internal const string HttpBasePathEnvironmentVariable = "MCP_HTTP_BASE_PATH";
+    private const string s_protectedResourceMetadataPath = "/.well-known/oauth-protected-resource";
 
     private static readonly string[] s_stdioHostBuilderArgs =
     [
@@ -441,7 +442,11 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
                             {
                                 HttpRequest request = context.Request;
                                 string scheme = GetSchemeForOAuthProtectedResourceMetadata(request, enableForwardedHeaders);
-                                string resourceMetadataUrl = BuildHttpUrl(request, scheme, "/.well-known/oauth-protected-resource", httpBasePath);
+                                string resourceMetadataUrl = BuildHttpUrl(
+                                    request,
+                                    scheme,
+                                    GetProtectedResourceMetadataPath(httpBasePath),
+                                    string.Empty);
 
                                 context.Response.StatusCode = 401;
 
@@ -517,7 +522,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
         //
         app.Use(async (context, next) =>
         {
-            if (context.Request.Path == "/.well-known/oauth-protected-resource" &&
+            if (IsProtectedResourceMetadataRequest(context.Request.Path, httpBasePath) &&
                 context.Request.Method == "GET")
             {
                 IOptionsMonitor<MicrosoftIdentityApplicationOptions> azureAdOptionsMonitor = context
@@ -667,6 +672,21 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
             .GetLeftPart(UriPartial.Authority);
         string path = (configuredBasePath ?? request.PathBase.ToUriComponent()).TrimEnd('/');
         return $"{authority}{path}{suffix}";
+    }
+
+    internal static string GetProtectedResourceMetadataPath(string configuredBasePath)
+    {
+        string basePath = NormalizeHttpBasePath(configuredBasePath);
+        return $"{s_protectedResourceMetadataPath}{basePath}";
+    }
+
+    internal static bool IsProtectedResourceMetadataRequest(PathString requestPath, string configuredBasePath)
+    {
+        string basePath = NormalizeHttpBasePath(configuredBasePath);
+        return requestPath == s_protectedResourceMetadataPath ||
+            (basePath.Length > 0 &&
+                (requestPath == $"{basePath}{s_protectedResourceMetadataPath}" ||
+                 requestPath == GetProtectedResourceMetadataPath(basePath)));
     }
 
     internal static string BuildMcpScope(string resource) => $"{resource.TrimEnd('/')}/Mcp.Tools.ReadWrite";

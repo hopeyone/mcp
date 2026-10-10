@@ -1110,6 +1110,8 @@ export AZURE_MCP_DANGEROUSLY_DISABLE_HTTPS_REDIRECTION=false
 
 A client (e.g., VS Code) that is not pre-configured with authorization details may fetch [OAuth Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) from the Azure MCP Server to discover them.
 
+When `MCP_HTTP_BASE_PATH` is set to `/mcp`, the RFC 9728 path-insertion discovery URL is `/.well-known/oauth-protected-resource/mcp`. The server also accepts the root and path-appended discovery variants for compatibility. The returned `authorization_servers` value points to Microsoft Entra; OAuth authorization-server or OpenID Connect metadata should be discovered from that Entra issuer, not from the MCP server host.
+
 Clients may fail to complete authorization when the server is behind a TLS-terminating reverse proxy (e.g., Azure Container Apps). The proxy forwards requests as http, so the server advertises http authorization URLs in its OAuth Protected Resource Metadata - causing a scheme mismatch that breaks the authorization flow.
 
 To fix this, set `AZURE_MCP_DANGEROUSLY_ENABLE_FORWARDED_HEADERS` to read the client's original scheme from the `X-Forwarded-Proto` header:

@@ -71,6 +71,42 @@ public sealed class ServerStartCommandValidationTests
             ServerStartCommand.BuildHttpUrl(context.Request, "https", string.Empty, "/mcp"));
     }
 
+    [Fact]
+    public void GetProtectedResourceMetadataPath_InsertsWellKnownBeforeConfiguredBasePath()
+    {
+        Assert.Equal(
+            "/.well-known/oauth-protected-resource/mcp",
+            ServerStartCommand.GetProtectedResourceMetadataPath("/mcp/"));
+    }
+
+    [Fact]
+    public void BuildHttpUrl_CreatesRfc9728PathInsertionChallengeUrl()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Host = new HostString("azuremcp.grdc.com.au", 443);
+
+        string metadataPath = ServerStartCommand.GetProtectedResourceMetadataPath("/mcp");
+
+        Assert.Equal(
+            "https://azuremcp.grdc.com.au/.well-known/oauth-protected-resource/mcp",
+            ServerStartCommand.BuildHttpUrl(context.Request, "https", metadataPath, string.Empty));
+    }
+
+    [Theory]
+    [InlineData("/.well-known/oauth-protected-resource", true)]
+    [InlineData("/.well-known/oauth-protected-resource/mcp", true)]
+    [InlineData("/mcp/.well-known/oauth-protected-resource", true)]
+    [InlineData("/.well-known/oauth-protected-resource/other", false)]
+    [InlineData("/.well-known/oauth-authorization-server/mcp", false)]
+    public void IsProtectedResourceMetadataRequest_RecognizesSupportedDiscoveryPaths(
+        string requestPath,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            ServerStartCommand.IsProtectedResourceMetadataRequest(requestPath, "/mcp"));
+    }
+
     private static ValidationResult Validate(ServerStartOptions options)
     {
         var command = new ServerStartCommand();
