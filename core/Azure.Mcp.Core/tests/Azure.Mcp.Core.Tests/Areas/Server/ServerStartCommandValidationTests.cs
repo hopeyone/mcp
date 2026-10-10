@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.Mcp.Core.Areas.Server.Commands;
 using Microsoft.Mcp.Core.Areas.Server.Options;
 using Microsoft.Mcp.Core.Commands;
@@ -37,6 +38,26 @@ public sealed class ServerStartCommandValidationTests
     {
         var exception = Assert.Throws<InvalidOperationException>(() => ServerStartCommand.NormalizeHttpBasePath(configuredPath));
         Assert.Contains(ServerStartCommand.HttpBasePathEnvironmentVariable, exception.Message);
+    }
+
+    [Fact]
+    public void BuildMcpScope_UsesTheAdvertisedResourceUri()
+    {
+        Assert.Equal(
+            "https://azuremcp.grdc.com.au/mcp/Mcp.Tools.ReadWrite",
+            ServerStartCommand.BuildMcpScope("https://azuremcp.grdc.com.au/mcp"));
+    }
+
+    [Fact]
+    public void BuildHttpUrl_RemovesDefaultHttpsPortAndPreservesBasePath()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Host = new HostString("azuremcp.grdc.com.au", 443);
+        context.Request.PathBase = new PathString("/mcp");
+
+        Assert.Equal(
+            "https://azuremcp.grdc.com.au/mcp",
+            ServerStartCommand.BuildHttpUrl(context.Request, "https", string.Empty));
     }
 
     private static ValidationResult Validate(ServerStartOptions options)

@@ -1118,6 +1118,8 @@ To fix this, set `AZURE_MCP_DANGEROUSLY_ENABLE_FORWARDED_HEADERS` to read the cl
 export AZURE_MCP_DANGEROUSLY_ENABLE_FORWARDED_HEADERS=true
 ```
 
+The protected-resource metadata advertises `Mcp.Tools.ReadWrite` using the same public resource identifier as its `resource` value. Configure that identifier as the server app registration's Application ID URI, and add the resulting delegated scope to the client app registration.
+
 ### Common Issues
 
 #### 401 Unauthorized - Invalid Token

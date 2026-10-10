@@ -527,7 +527,6 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
                 HttpRequest request = context.Request;
                 string scheme = GetSchemeForOAuthProtectedResourceMetadata(request, enableForwardedHeaders);
                 string baseUrl = BuildHttpUrl(request, scheme, string.Empty);
-                string? clientId = azureAdOptions.ClientId;
                 string? tenantId = azureAdOptions.TenantId;
                 string instance = azureAdOptions.Instance?.TrimEnd('/') ?? "https://login.microsoftonline.com";
 
@@ -547,7 +546,7 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
                     // access tokens for our endpoint and for the owners of the client and MCP
                     // server's service principals to ensure the necessary app roles are assigned
                     // upfront.
-                    ScopesSupported = [$"{clientId}/Mcp.Tools.ReadWrite"],
+                    ScopesSupported = [BuildMcpScope(baseUrl)],
                     BearerMethodsSupported = ["header"],
 
                     // Intentionally pointing to MCP repo for documentation. Could eventually
@@ -661,11 +660,16 @@ public sealed class ServerStartCommand : BaseCommand<ServerStartOptions, string>
         return path.TrimEnd('/');
     }
 
-    private static string BuildHttpUrl(HttpRequest request, string scheme, string suffix)
+    internal static string BuildHttpUrl(HttpRequest request, string scheme, string suffix)
     {
-        string path = request.PathBase.ToString().TrimEnd('/');
-        return $"{scheme}://{request.Host}{path}{suffix}";
+        string authority = new UriBuilder(scheme, request.Host.Host, request.Host.Port ?? -1)
+            .Uri
+            .GetLeftPart(UriPartial.Authority);
+        string path = request.PathBase.ToUriComponent().TrimEnd('/');
+        return $"{authority}{path}{suffix}";
     }
+
+    internal static string BuildMcpScope(string resource) => $"{resource.TrimEnd('/')}/Mcp.Tools.ReadWrite";
 
     /// <summary>
     /// Resolves the effective HTTP scheme for use in OAuth Protected Resource Metadata URLs,

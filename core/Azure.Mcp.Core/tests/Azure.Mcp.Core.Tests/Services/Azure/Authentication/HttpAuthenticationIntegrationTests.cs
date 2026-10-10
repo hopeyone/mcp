@@ -394,15 +394,14 @@ public class HttpAuthenticationIntegrationTests(ITestOutputHelper output) : IAsy
     }
 
     [Fact]
-    public async Task MetadataScopes_ContainsCorrectClientId()
+    public async Task MetadataScopes_UseTheAdvertisedResourceIdentifier()
     {
-        var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
-
         var response = await _httpClient!.GetAsync("/.well-known/oauth-protected-resource", TestContext.Current.CancellationToken);
         var json = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var metadata = JsonSerializer.Deserialize<OAuthProtectedResourceMetadata>(json);
 
-        // Verify scopes include client ID
-        Assert.Contains($"{clientId}/Mcp.Tools.ReadWrite", json);
+        Assert.NotNull(metadata);
+        Assert.Equal($"{metadata.Resource}/Mcp.Tools.ReadWrite", Assert.Single(metadata.ScopesSupported));
     }
     /// <summary>
     /// Extracts the resource_metadata URL from WWW-Authenticate header collection.
