@@ -12,6 +12,22 @@ The Azure MCP Server updates automatically by default whenever a new release com
 
 ### Other Changes
 
+## 3.0.0
+
+Azure MCP Server 3.0 is generally available. This release includes the accumulated changes from the 3.0 beta series. See the [3.0.0 release](https://github.com/microsoft/mcp/releases/tag/Azure.Mcp.Server-3.0.0) and the beta entries below for full details.
+
+### Breaking Changes
+
+- Renamed the Resilience Management command namespace and MCP tool prefix from `resilience` to `resiliency`; update command invocations, saved tool names, and namespace filters.
+- Newly created Recovery Services vaults disable public network access, new Storage accounts disable Shared Key authentication, new Event Hubs namespaces disable local authentication, and new NFS shares use root squashing with encrypted transit.
+- Azure Backup vault creation now rejects existing vaults instead of updating them. Use the update command for existing vaults.
+- MySQL and PostgreSQL database query tools are now marked destructive and no longer restrict statements by SQL keyword; in consolidated mode, query tools moved to `execute_azure_database_query`.
+- Removed Azure Data Manager for Energy tools for GA, the resiliency goal template get tool, and unused or nonfunctional command parameters. Review saved invocations and schemas for affected tools.
+
+### Other Changes
+
+- Updated the required .NET SDK to 10.0.401 and added cloud-aware endpoint validation across Azure service integrations.
+
 ## 3.0.0-beta.50 (2026-10-06)
 
 ### Breaking Changes

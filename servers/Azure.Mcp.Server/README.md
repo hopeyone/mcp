@@ -4,7 +4,7 @@ See eng\scripts\Process-PackageReadMe.ps1 for instruction on how to annotate thi
 # <!-- remove-section: start nuget;vsix remove_azure_logo --><img height="36" width="36" src="https://cdn-dynmedia-1.microsoft.com/is/content/microsoftcorp/acom_social_icon_azure" alt="Microsoft Azure Logo" /> <!-- remove-section: end remove_azure_logo -->Azure MCP Server <!-- insert-section: nuget;vsix;npm;pypi {{ToolTitle}} -->
 <!-- remove-section: start nuget;vsix;npm;pypi remove_note_ga -->
 > [!NOTE]
-> Azure MCP Server 2.0 is now [generally available](https://aka.ms/azmcp/2.0-ga).
+> Azure MCP Server 3.0 is now [generally available](https://github.com/microsoft/mcp/releases/tag/Azure.Mcp.Server-3.0.0).
 <!-- remove-section: end remove_note_ga -->
 
 <!-- insert-section: nuget;pypi {{MCPRepositoryMetadata}} -->
@@ -688,7 +688,7 @@ class Program
 
 ---
 
-> **Note:** If startup is slow, use a pinned version (`@azure/mcp@2.0.0-beta.13` instead of `@latest`) or install globally (`npm install -g @azure/mcp@latest`).
+> **Note:** If startup is slow, use a pinned version (`@azure/mcp@3.0.0` instead of `@latest`) or install globally (`npm install -g @azure/mcp@latest`).
 
 </details>
 
