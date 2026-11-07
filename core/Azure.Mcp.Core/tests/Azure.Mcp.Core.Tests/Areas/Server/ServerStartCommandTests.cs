@@ -10,6 +10,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Mcp.Core.Areas.Server.Commands;
 using Microsoft.Mcp.Core.Areas.Server.Options;
 using Microsoft.Mcp.Core.Commands;
+using Microsoft.Mcp.Core.Helpers;
 using Microsoft.Mcp.Core.Models.Command;
 using Microsoft.Mcp.Core.Services.Telemetry;
 using Microsoft.Mcp.Tests;
@@ -127,6 +128,31 @@ public class ServerStartCommandTests
         // Assert
         var hasToolOption = command.Options.Any(o => o.Name == "--tool");
         Assert.True(hasToolOption, "Tool option should be registered");
+    }
+
+    [Fact]
+    public void DangerouslyDisableSsrfProtectionsByNamespaceOption_ParsesMultipleNamespaces()
+    {
+        // Arrange & Act
+        var options = BindOptions(
+            "--dangerously-disable-ssrf-protections-by-namespace", "acr",
+            "--dangerously-disable-ssrf-protections-by-namespace", SsrfProtectionPolicy.AllNamespaces);
+
+        // Assert
+        Assert.NotNull(options.DangerouslyDisableSsrfProtectionsByNamespace);
+        Assert.Equal(["acr", SsrfProtectionPolicy.AllNamespaces], options.DangerouslyDisableSsrfProtectionsByNamespace);
+    }
+
+    [Fact]
+    public void AllOptionsRegistered_IncludesDangerouslyDisableSsrfProtectionsByNamespace()
+    {
+        // Arrange & Act
+        var command = _command.GetCommand();
+
+        // Assert
+        var hasOption = command.Options.Any(
+            o => o.Name == "--dangerously-disable-ssrf-protections-by-namespace");
+        Assert.True(hasOption, "DangerouslyDisableSsrfProtectionsByNamespace option should be registered");
     }
 
     [Theory]
@@ -294,6 +320,7 @@ public class ServerStartCommandTests
         Assert.False(options.Debug);
         Assert.False(options.DangerouslyDisableHttpIncomingAuth);
         Assert.False(options.DangerouslyDisableElicitation);
+        Assert.Null(options.DangerouslyDisableSsrfProtectionsByNamespace);
         Assert.Null(options.DangerouslyWriteSupportLogsToDir);
         Assert.False(options.DisableCaching);
     }
@@ -574,7 +601,8 @@ public class ServerStartCommandTests
 
 
         // Act
-        ServerStartCommand.LogStartTelemetry(mockTelemetry, serverStartOptions);
+        ServerStartCommand.LogStartTelemetry(
+            mockTelemetry, serverStartOptions, new SsrfProtectionPolicy(null));
 
         // Assert
         mockTelemetry.Received(1).StartActivity(ActivityName.ServerStarted);
@@ -587,6 +615,8 @@ public class ServerStartCommandTests
         activity.AssertTagEquals(TagName.IsReadOnly, serverStartOptions.ReadOnly);
         activity.AssertTagEquals(TagName.IsDebug, serverStartOptions.Debug);
         activity.AssertTagEquals(TagName.Namespace, string.Join(",", serverStartOptions.Namespace));
+        activity.AssertTagEquals(TagName.SsrfNamespaceOverrideScope, "none");
+        Assert.Equal(0, activity.GetTagItem(TagName.SsrfNamespaceOverrideCount));
     }
 
     [Fact]
@@ -608,7 +638,8 @@ public class ServerStartCommandTests
         mockTelemetry.StartActivity(Arg.Any<string>()).Returns(activity);
 
         // Act
-        ServerStartCommand.LogStartTelemetry(mockTelemetry, serverStartOptions);
+        ServerStartCommand.LogStartTelemetry(
+            mockTelemetry, serverStartOptions, new SsrfProtectionPolicy(null));
 
         // Assert
         mockTelemetry.Received(1).StartActivity(ActivityName.ServerStarted);

@@ -24,12 +24,24 @@ namespace Microsoft.Mcp.Core.Areas.Server.Commands.ToolLoading;
 /// Provides the same functionality as <see cref="ServerToolLoader"/> but without spawning child azmcp processes.
 /// Supports learn functionality for progressive discovery of commands within each namespace.
 /// </summary>
+/// <param name="contextAccessor">The singleton accessor shared with services executing command work.</param>
+/// <param name="commandFactory">The factory supplying ordinary or consolidated command groups.</param>
+/// <param name="configuration">The server's filtering, transport, consent, and output settings.</param>
+/// <param name="logger">The logger for discovery, sampling, and command execution.</param>
+/// <param name="applyFilter">Whether to apply ignored-group and configured namespace filters.</param>
+/// <remarks>
+/// Discovery, learn responses, sampling callbacks, and elicitation run without a new execution
+/// scope. When a request or sampling result selects a real command, the loader scopes that
+/// command's awaited execution using its original namespace, not the displayed group name.
+/// </remarks>
 public sealed class NamespaceToolLoader(
+    ICommandContextAccessor contextAccessor,
     ICommandFactory commandFactory,
     IOptions<ServerRuntimeConfiguration> configuration,
     ILogger<NamespaceToolLoader> logger,
     bool applyFilter = true) : BaseToolLoader(logger)
 {
+    private readonly ICommandContextAccessor _contextAccessor = contextAccessor ?? throw new ArgumentNullException(nameof(contextAccessor));
     private readonly ICommandFactory _commandFactory = commandFactory ?? throw new ArgumentNullException(nameof(commandFactory));
     private readonly IOptions<ServerRuntimeConfiguration> _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
 
@@ -164,17 +176,17 @@ public sealed class NamespaceToolLoader(
             throw new ArgumentNullException(nameof(request.Params.Name), "Tool name cannot be null or empty.");
         }
 
-        string tool = request.Params.Name;
+        string tool = _availableNamespaces.Value.FirstOrDefault(namespaceName =>
+            string.Equals(namespaceName, request.Params.Name, StringComparison.OrdinalIgnoreCase)) ?? request.Params.Name;
         var args = request.Params.Arguments;
         string? intent = null;
         string? command = null;
         bool learn = false;
 
         // In namespace mode, the name of the tool is also its IAreaSetup name.
-        Activity.Current?.SetTag(TagName.IsServerCommandInvoked, false)
+        var activity = Activity.Current?.SetTag(TagName.IsServerCommandInvoked, false)
             // At this point the tool parameters is the namespace tool schema
-            .SetTag(TagName.ToolParameters, McpHelper.CreateToolParametersTelemetry(request.Params.Arguments?.Keys))
-            .SetTag(TagName.ToolArea, tool);
+            .SetTag(TagName.ToolParameters, McpHelper.CreateToolParametersTelemetry(request.Params.Arguments?.Keys));
 
         if (args != null)
         {
@@ -199,8 +211,6 @@ public sealed class NamespaceToolLoader(
 
         try
         {
-            var activity = Activity.Current;
-
             if (learn)
             {
                 return await InvokeToolLearn(request, intent ?? "", tool, cancellationToken);
@@ -233,8 +243,6 @@ public sealed class NamespaceToolLoader(
                 // invoking it with no parameters and "learn" == "true".  The command will
                 // generally fail, providing the LLM with extra information it needs to pass
                 // in for the command to succeed the next time.
-                activity?.SetTag(TagName.ToolName, command);
-
                 var toolParams = GetParametersFromArgs(args);
                 return await InvokeChildToolAsync(
                     request,
@@ -285,6 +293,7 @@ public sealed class NamespaceToolLoader(
         IDictionary<string, JsonElement> parameters,
         CancellationToken cancellationToken)
     {
+        var activity = Activity.Current;
         if (request.Params == null)
         {
             var content = new TextContentBlock
@@ -301,18 +310,22 @@ public sealed class NamespaceToolLoader(
             };
         }
 
-        IReadOnlyDictionary<string, IBaseCommand> namespaceCommands;
+        IReadOnlyDictionary<string, CommandRegistration> namespaceCommands;
         try
         {
             namespaceCommands = _commandFactory.GroupCommands([namespaceName]);
-            if (namespaceCommands == null || namespaceCommands.Count == 0)
+            if (namespaceCommands == null)
             {
+                activity?.SetTag(TagName.ToolArea, TagConstants.Unknown)
+                    .SetTag(TagName.ToolName, TagConstants.Unknown);
                 _logger.LogError("Failed to get commands for namespace: {Namespace}", namespaceName);
                 return await InvokeToolLearn(request, intent, namespaceName, cancellationToken);
             }
         }
         catch (Exception ex)
         {
+            activity?.SetTag(TagName.ToolArea, TagConstants.Unknown)
+                .SetTag(TagName.ToolName, TagConstants.Unknown);
             _logger.LogError(ex, "Exception thrown while getting commands for namespace: {Namespace}", namespaceName);
             return await InvokeToolLearn(request, intent, namespaceName, cancellationToken);
         }
@@ -320,39 +333,57 @@ public sealed class NamespaceToolLoader(
         try
         {
             var availableTools = GetChildToolList(request, namespaceName);
-
-            // When the specified command is not available, we try to learn about the tool's capabilities
-            // and infer the command and parameters from the users intent.
-            if (!availableTools.Any(t => string.Equals(t.Name, command, StringComparison.OrdinalIgnoreCase)))
+            if (availableTools.Count > 0)
             {
+                activity?.SetTag(TagName.ToolArea, namespaceName);
+            }
+            else
+            {
+                activity?.SetTag(TagName.ToolArea, TagConstants.Unknown);
+            }
+
+            var requestedCommand = command;
+            var resolvedTool = availableTools.FirstOrDefault(t => string.Equals(t.Name, command, StringComparison.OrdinalIgnoreCase));
+
+            // Try one supported sampling correction without falling back to the full learn response.
+            if (resolvedTool == null)
+            {
+                activity?.SetTag(TagName.ToolName, TagConstants.Unknown);
                 _logger.LogWarning("Namespace {Namespace} does not have a command {Command}.", namespaceName, command);
-                if (string.IsNullOrWhiteSpace(intent))
+                if (availableTools.Count == 0 || !SupportsSampling(request.Server) || string.IsNullOrWhiteSpace(intent))
                 {
-                    return await InvokeToolLearn(request, intent, namespaceName, cancellationToken);
+                    return CreateUnknownCommandResult(namespaceName, requestedCommand, availableTools.Select(t => t.Name));
                 }
 
                 var samplingResult = await GetCommandAndParametersFromIntentAsync(request, intent, namespaceName, availableTools, cancellationToken);
-                if (string.IsNullOrWhiteSpace(samplingResult.commandName))
+                resolvedTool = availableTools.FirstOrDefault(t => string.Equals(t.Name, samplingResult.commandName, StringComparison.OrdinalIgnoreCase));
+                if (resolvedTool == null)
                 {
-                    return await InvokeToolLearn(request, intent ?? "", namespaceName, cancellationToken);
+                    return CreateUnknownCommandResult(namespaceName, requestedCommand, availableTools.Select(t => t.Name));
                 }
 
-                command = samplingResult.commandName;
                 parameters = samplingResult.parameters;
             }
 
+            command = resolvedTool.Name;
+
             // Here the parameters are now those for the tool call, instead of being the namespace parameters.
-            Activity.Current?.SetTag(TagName.ToolParameters, McpHelper.CreateToolParametersTelemetry(parameters.Keys));
+            activity?.SetTag(TagName.ToolParameters, McpHelper.CreateToolParametersTelemetry(parameters.Keys));
 
             await NotifyProgressAsync(request, $"Calling {namespaceName} {command}...", cancellationToken);
 
-            if (!namespaceCommands.TryGetValue(command, out var cmd))
+            if (!namespaceCommands.TryGetValue(command, out CommandRegistration? registration))
             {
+                activity?.SetTag(TagName.ToolName, TagConstants.Unknown);
                 _logger.LogError("Command {Command} found in tools but missing from namespace {Namespace} commands.", command, namespaceName);
-                return await InvokeToolLearn(request, intent, namespaceName, cancellationToken);
+                return CreateUnknownCommandResult(namespaceName, requestedCommand, availableTools.Select(t => t.Name));
             }
 
-            Activity.Current?.SetTag(TagName.ToolAnnotations, McpHelper.CreateToolAnnotationTelemetry(cmd));
+            IBaseCommand cmd = registration.Command;
+            activity?.SetTag(TagName.ToolName, command)
+                .SetTag(TagName.ToolId, cmd.Id)
+                .SetTag(TagName.ToolSource, "internal")
+                .SetTag(TagName.ToolAnnotations, McpHelper.CreateToolAnnotationTelemetry(cmd));
 
             // Enforce read-only mode at execution time
             if (_configuration.Value.ReadOnly && !cmd.Metadata.ReadOnly)
@@ -402,11 +433,11 @@ public sealed class NamespaceToolLoader(
                 return elicitationResult;
             }
 
-            var currentActivity = Activity.Current;
-            var commandContext = new CommandContext(currentActivity)
+            var commandContext = new CommandContext(activity)
             {
                 McpServer = request.Server,
-                ProgressToken = request.Params?.ProgressToken
+                ProgressToken = request.Params?.ProgressToken,
+                ToolNamespaceName = registration.ToolNamespaceName
             };
             var realCommand = cmd.GetCommand();
 
@@ -443,12 +474,13 @@ public sealed class NamespaceToolLoader(
             // It is possible that the command provided by the LLM is not one that exists, such as "blob-list".
             // The logic above performs sampling to try and get a correct command name.  "blob_get" in
             // this case, which will be executed.
-            currentActivity?.SetTag(TagName.ToolName, command)
-                .SetTag(TagName.ToolId, cmd.Id)
-                .SetTag(TagName.ToolSource, "internal")
-                .SetTag(TagName.IsServerCommandInvoked, true);
+            activity?.SetTag(TagName.IsServerCommandInvoked, true);
 
-            var commandResponse = await cmd.ExecuteAsync(commandContext, commandOptions!, cancellationToken);
+            CommandResponse commandResponse;
+            using (_contextAccessor.BeginScope(commandContext))
+            {
+                commandResponse = await cmd.ExecuteAsync(commandContext, commandOptions!, cancellationToken);
+            }
             var isError = commandResponse.Status < HttpStatusCode.OK || commandResponse.Status >= HttpStatusCode.Ambiguous;
 
             if (commandResponse.Message.Contains("Missing required options", StringComparison.OrdinalIgnoreCase))
@@ -528,9 +560,19 @@ public sealed class NamespaceToolLoader(
         string namespaceName,
         CancellationToken cancellationToken)
     {
-        Activity.Current?.SetTag(TagName.IsServerCommandInvoked, false)
+        var activity = Activity.Current?.SetTag(TagName.IsServerCommandInvoked, false)
             .SetTag(TagName.IsLearn, true);
-        var learnTools = GetChildToolList(request, namespaceName).Select(t => new ToolCommandInfo(t));
+        var availableTools = GetChildToolList(request, namespaceName);
+        if (availableTools.Count > 0)
+        {
+            activity?.SetTag(TagName.ToolArea, namespaceName);
+        }
+        else
+        {
+            activity?.SetTag(TagName.ToolArea, TagConstants.Unknown);
+        }
+
+        var learnTools = availableTools.Select(t => new ToolCommandInfo(t));
         var learnToolsJson = JsonSerializer.Serialize(learnTools, ServerJsonContext.Default.IEnumerableToolCommandInfo);
         var contentText = $"""
             Here are the available commands and their input schema for '{namespaceName}' tool.
@@ -547,7 +589,6 @@ public sealed class NamespaceToolLoader(
         var response = learnResponse;
         if (SupportsSampling(request.Server) && !string.IsNullOrWhiteSpace(intent))
         {
-            var availableTools = GetChildToolList(request, namespaceName);
             (string? commandName, IDictionary<string, JsonElement> parameters) = await GetCommandAndParametersFromIntentAsync(request, intent, namespaceName, availableTools, cancellationToken);
             if (commandName != null)
             {
@@ -582,6 +623,8 @@ public sealed class NamespaceToolLoader(
         var namespaces = _availableNamespaces.Value;
         if (!namespaces.Any(ns => string.Equals(ns, namespaceName, StringComparison.OrdinalIgnoreCase)))
         {
+            Activity.Current?.SetTag(TagName.ToolArea, TagConstants.Unknown)
+                .SetTag(TagName.ToolName, TagConstants.Unknown);
             var availableList = string.Join(", ", namespaces);
             throw new KeyNotFoundException($"The namespace '{namespaceName}' was not found. Available namespaces: {availableList}");
         }
@@ -594,9 +637,9 @@ public sealed class NamespaceToolLoader(
         }
 
         var list = namespaceCommands
-            .Where(kvp => !_configuration.Value.ReadOnly || kvp.Value.Metadata.ReadOnly)
-            .Where(kvp => !_configuration.Value.IsHttpMode || !kvp.Value.Metadata.LocalRequired)
-            .Select(kvp => CreateToolFromCommand(kvp.Key, kvp.Value))
+            .Where(kvp => !_configuration.Value.ReadOnly || kvp.Value.Command.Metadata.ReadOnly)
+            .Where(kvp => !_configuration.Value.IsHttpMode || !kvp.Value.Command.Metadata.LocalRequired)
+            .Select(kvp => CreateToolFromCommand(kvp.Key, kvp.Value.Command))
             .ToList();
 
         // Cache for subsequent requests
@@ -711,10 +754,13 @@ public sealed class NamespaceToolLoader(
                 }
             }
 
-            if (commandName != null && commandName != "Unknown")
+            var resolvedCommandName = ResolveSampledCommandName(commandName, availableTools);
+            if (resolvedCommandName != null)
             {
-                return (commandName, parameters);
+                return (resolvedCommandName, parameters);
             }
+
+            _logger.LogWarning("Sampling did not resolve to an available command for namespace: {Namespace}.", namespaceName);
         }
         catch
         {
