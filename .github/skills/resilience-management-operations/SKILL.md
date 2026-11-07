@@ -1,6 +1,6 @@
 ---
 name: resilience-management-operations
-description: 'Operate all Azure Resilience Management MCP tools for usage plans, enrollments, goals, drills, drill resources and runs, recovery plans, recovery resources, recovery jobs, failover, reprotect, readiness, validation, retry, resume, and finalize. Use when: list/get/create/update/delete resilience resources; configure, validate, run, resync, or end drills; include/exclude recovery resources; check readiness; validate or execute recovery operations; monitor, retry, or resume recovery jobs; implement, add, test, or record a Resilience Management tool.'
+description: "Operate Azure Resilience Management tools and deliver new tools. WHEN: 'manage goal assignments', 'recommend zonal capacity', 'refresh goal resources', 'attest resilience', 'manage usage plans', 'run drills', 'configure recovery resources', 'check readiness', 'execute recovery operations', 'monitor recovery jobs', or 'implement resilience tools'. Covers implementation, testing, recording, review, and approved publication."
 argument-hint: 'Describe the resilience operation and provide known service group, plan, drill, job, subscription, or resource identifiers'
 user-invocable: true
 disable-model-invocation: false
@@ -10,7 +10,7 @@ disable-model-invocation: false
 
 # Azure Resilience Management Operations
 
-For operational Azure Resilience Management requests, use the Azure Resilience Management MCP tools when a registered tool supports the operation. If no registered tool supports the requested resilience operation, ask the user for explicit permission before using Azure CLI (`az`), `az rest`, direct HTTP/REST calls, PowerShell Azure commands, or SDK code as a fallback. This fallback restriction does not apply to non-resilience Azure operations or to development tasks such as implementing, testing, recording, or debugging tools; follow the applicable workflow and required tooling. This skill covers all tools registered under the `resilience` namespace.
+For operational Azure Resilience Management requests, use the Azure Resilience Management MCP tools when a registered tool supports the operation. If no registered tool supports the requested resilience operation, ask the user for explicit permission before using Azure CLI (`az`), `az rest`, direct HTTP/REST calls, PowerShell Azure commands, or SDK code as a fallback. This fallback restriction does not apply to non-resilience Azure operations or to development tasks such as implementing, testing, recording, or debugging tools; follow the applicable workflow and required tooling. This skill covers all tools registered under the `resiliency` namespace.
 
 - See [tool reference](./references/tools.md) for exact tool names, parameters, and enum values.
 - See [workflow recipes](./references/workflows.md) for end-to-end operation sequences and state gates.
@@ -35,12 +35,14 @@ For operational Azure Resilience Management requests, use the Azure Resilience M
 
 ## Route the Request
 
-- Usage plan or enrollment → `mcp_azure_mcp_ser_resilience_usageplan_*`
-- Goal template, assignment, or member → `mcp_azure_mcp_ser_resilience_goal_*`
-- Drill definition, execution, run, or target → `mcp_azure_mcp_ser_resilience_drill_*`
-- Recovery plan lifecycle or recovery operation → `mcp_azure_mcp_ser_resilience_recoveryplan_*`
-- Recovery plan membership/protection → `mcp_azure_mcp_ser_resilience_recoveryplan_resource_*`
-- Recovery job, paused action, retry, or job target → `mcp_azure_mcp_ser_resilience_recoveryjob_*`
+- Usage plan or enrollment → `mcp_azure_mcp_ser_resiliency_usageplan_*`
+- Goal assignment lifecycle → `mcp_azure_mcp_ser_resiliency_goal_assignment_get`, `create`, `update`, or `delete`
+- Zonal capacity assessment or membership rediscovery → `mcp_azure_mcp_ser_resiliency_goal_assignment_recommend-capacity` or `mcp_azure_mcp_ser_resiliency_goal_assignment_refresh-resources`
+- Goal member inspection or zonal participation, attestation, and confirmation → `mcp_azure_mcp_ser_resiliency_goal_resource_get` or `mcp_azure_mcp_ser_resiliency_goal_assignment_update-resources`
+- Drill definition, execution, run, or target → `mcp_azure_mcp_ser_resiliency_drill_*`
+- Recovery plan lifecycle or recovery operation → `mcp_azure_mcp_ser_resiliency_recoveryplan_*`
+- Recovery plan membership/protection → `mcp_azure_mcp_ser_resiliency_recoveryplan_resource_*`
+- Recovery job, paused action, retry, or job target → `mcp_azure_mcp_ser_resiliency_recoveryjob_*`
 
 ## Standard Procedure
 
@@ -59,6 +61,9 @@ For operational Azure Resilience Management requests, use the Azure Resilience M
 3. Return relevant status, IDs, state, errors, and attention reasons. Do not dump unrelated properties.
 
 ### Create or update requests
+
+For Goals, follow the [assignment workflow](./references/workflows.md#manage-goal-assignments)
+and [nested GA resource payload](./references/payloads.md#goal-resource-updates-ga); do not use templates or flat HA/DR fields.
 
 1. Get the existing resource when update semantics depend on omitted values.
 2. Collect conditionally required choices.
@@ -105,6 +110,14 @@ For the generic authoring lifecycle, follow [add-azure-mcp-tools](../add-azure-m
 Every new or behaviorally changed Resilience Management tool must have at least two distinct E2E evaluation prompts. For every prompt, the expected tool must rank `#1` with a score of at least `0.6`. This is an intentional Resilience-specific override of the repository-wide top-three and `0.4` baseline.
 
 Tests for every new or behaviorally changed Resilience Management tool must always cover both positive and negative scenarios.
+
+### Automated delivery workflow
+
+When the user asks to create or deliver a Resilience Management tool, own the workflow through human merge. The developer should need to name the API, provide the approved test subscription and reusable resources, clarify genuinely ambiguous contracts, approve publication, review human-requested changes, and merge the approved PR. Follow the resumable state machine in [development.md](./references/development.md#automated-delivery-state-machine).
+
+At every invocation or resume, and before every push, fetch the PR target branch and inspect mergeability. Resolve unambiguous conflicts, rerun affected validation, and update the existing PR branch. Never discard either side merely to make the conflict disappear. If preserving both changes requires a product or API decision, present the conflicting intents and ask the developer.
+
+The skill cannot run independently after the agent session ends. In resume-on-request mode, persist progress in the PR and re-check conflicts, checks, and comments whenever the workflow is invoked again. Add the required delivery manifest marker to the PR body and ensure the PR has the `tools-ResilienceManagement` label so `.github/workflows/resilience-merge-conflict-monitor.yml` can detect conflicts every three hours; both are required. Resume the skill to resolve any conflict it reports.
 
 ## Result Format
 

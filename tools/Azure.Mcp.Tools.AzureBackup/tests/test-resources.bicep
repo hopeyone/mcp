@@ -5,10 +5,10 @@ targetScope = 'resourceGroup'
 @description('The base resource name.')
 param baseName string = take(resourceGroup().name, 20)
 
-@description('The location of the resource. By default, this is the same as the resource group.')
-param location string = resourceGroup().location
+@description('The location of the resources. Defaults to westus2 because some test subscriptions have no VM SKUs enabled in westus.')
+param location string = 'westus2'
 
-@description('The location for the Cosmos DB account and the DPP backup vault. Azure Backup for Cosmos DB (DPP, preview) requires both to be in the same region (and in a preview-enabled region such as eastus2euap or centraluseuap). Defaults to the resource group location; override (along with the RG location) when targeting a preview region.')
+@description('The location for the Cosmos DB account and the DPP backup vault. Azure Backup for Cosmos DB (DPP, preview) requires both to be in the same region (and in a preview-enabled region such as eastus2euap or centraluseuap). Defaults to the location parameter; override both parameters when targeting a different preview region.')
 param cosmosLocation string = location
 
 @description('The client OID to grant access to test resources.')
@@ -17,6 +17,9 @@ param testApplicationOid string
 @description('Admin password for the SQL VM used in testing.')
 @secure()
 param sqlVmAdminPwd string = 'P${newGuid()}!'
+
+@description('The VM size for the SQL VM used in testing.')
+param sqlVmSize string = 'Standard_B2als_v2'
 
 // Recovery Services Vault (RSV) - GeoRedundant for CRR support
 resource rsvVault 'Microsoft.RecoveryServices/vaults@2024-04-01' = {
@@ -144,6 +147,7 @@ resource dppDiskBackupReaderRoleAssignment 'Microsoft.Authorization/roleAssignme
 // Output the resource IDs for the post-deployment script
 output diskId string = testDisk.id
 output diskName string = testDisk.name
+output diskLocation string = testDisk.location
 
 // ─── RSV Undelete Test Resources (Storage Account + File Share) ───
 
@@ -288,7 +292,7 @@ output cosmosDbAccountName string = cosmosDbAccount.name
 output cosmosDbAccountLocation string = cosmosLocation
 
 // ─── SQL VM for ARM-Level Discovery Testing ───
-// Lowest-cost config: Standard_B2als_v2 + SQL 2022 Developer (free license) + no public IP.
+// Low-cost config: 2 vCPUs, at most 8 GB RAM, SQL 2022 Developer (free license), and no public IP.
 // The find-unprotected command discovers this VM via ARM Resource Graph as an unprotected resource.
 // No RSV container registration is needed — ARM-level discovery finds VMs directly.
 
@@ -345,7 +349,7 @@ resource sqlVm 'Microsoft.Compute/virtualMachines@2024-03-01' = {
   location: location
   properties: {
     hardwareProfile: {
-      vmSize: 'Standard_B2als_v2'
+      vmSize: sqlVmSize
     }
     storageProfile: {
       imageReference: {
@@ -473,3 +477,68 @@ resource appNetworkContributorRoleAssignmentPeVnet 'Microsoft.Authorization/role
 
 output rsvPeVaultName string = rsvPeVault.name
 output peSubnetId string = peVnet.properties.subnets[0].id
+
+// ─── Vault Identity + Networking Test Resources ───
+// User-assigned managed identity attached to the PE vault by the
+// `azurebackup vault update --identity-type ... --user-assigned-identity` test.
+resource testUserAssignedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${baseName}-uami'
+  location: location
+  tags: {
+    Owner: 'azurebackup-mcp-tests'
+    ServiceName: 'AzureBackup'
+    Environment: 'Test'
+  }
+}
+
+// Managed Identity Operator on the UAMI for the test app so it can assign the
+// user-assigned identity to the vault (requires the .../assign/action permission).
+resource managedIdentityOperatorRoleDef 'Microsoft.Authorization/roleDefinitions@2018-01-01-preview' existing = {
+  scope: subscription()
+  name: 'f1a07417-d97a-45cb-824c-7a7467783830' // Managed Identity Operator
+}
+
+resource appManagedIdentityOperatorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(managedIdentityOperatorRoleDef.id, testApplicationOid, testUserAssignedIdentity.id)
+  scope: testUserAssignedIdentity
+  properties: {
+    principalId: testApplicationOid
+    roleDefinitionId: managedIdentityOperatorRoleDef.id
+    description: 'Managed Identity Operator for ${testApplicationOid} on test UAMI'
+  }
+}
+
+output userAssignedIdentityId string = testUserAssignedIdentity.id
+output userAssignedIdentityName string = testUserAssignedIdentity.name
+
+// Backup private DNS zone linked by the `azurebackup vault privateendpoint create
+// --private-dns-zone-ids` test. Private DNS zones are global resources.
+resource backupPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink.${baseName}.backup.windowsazure.com'
+  location: 'global'
+  tags: {
+    Owner: 'azurebackup-mcp-tests'
+    ServiceName: 'AzureBackup'
+    Environment: 'Test'
+  }
+}
+
+// Private DNS Zone Contributor on the zone for the test app so it can create the
+// Private DNS zone group that links the zone to the new Private Endpoint.
+resource privateDnsZoneContributorRoleDef 'Microsoft.Authorization/roleDefinitions@2018-01-01-preview' existing = {
+  scope: subscription()
+  name: 'b12aa53e-6015-4669-85d0-8515ebb3ae7f' // Private DNS Zone Contributor
+}
+
+resource appPrivateDnsZoneContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(privateDnsZoneContributorRoleDef.id, testApplicationOid, backupPrivateDnsZone.id)
+  scope: backupPrivateDnsZone
+  properties: {
+    principalId: testApplicationOid
+    roleDefinitionId: privateDnsZoneContributorRoleDef.id
+    description: 'Private DNS Zone Contributor for ${testApplicationOid} on backup private DNS zone'
+  }
+}
+
+output backupPrivateDnsZoneId string = backupPrivateDnsZone.id
+output backupPrivateDnsZoneName string = backupPrivateDnsZone.name

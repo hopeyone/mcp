@@ -13,6 +13,7 @@ words:
   - azurefiles
   - azureiaasvm
   - backupconfig
+  - backupstorageconfig
   - badformat
   - badvalue
   - bper
@@ -52,6 +53,7 @@ words:
   - ppaf
   - previlige
   - privateendpoint
+  - privatelink
   - prometeia
   - recognised
   - sapasedatabase
@@ -69,6 +71,7 @@ words:
   - sqlb
   - sqldev
   - sqlinstance
+  - sqlrsv
   - sqlvm
   - startofweek
   - storagecontainer
@@ -78,6 +81,8 @@ words:
   - testsan
   - testshare
   - testvg
+  - uami
+  - windowsazure
   - tierafter
   - toint
   - toolarea
@@ -88,4 +93,5 @@ words:
   - unknowncontainer
   - unknownformat
   - vaultconfig
+  - vaultstorageconfig
   - vmappcontainer

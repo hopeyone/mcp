@@ -8,6 +8,7 @@ using Azure.Mcp.Tools.AzureBackup.Commands.Container;
 using Azure.Mcp.Tools.AzureBackup.Commands.DisasterRecovery;
 using Azure.Mcp.Tools.AzureBackup.Commands.Governance;
 using Azure.Mcp.Tools.AzureBackup.Commands.Job;
+using Azure.Mcp.Tools.AzureBackup.Commands.Operation;
 using Azure.Mcp.Tools.AzureBackup.Commands.Policy;
 using Azure.Mcp.Tools.AzureBackup.Commands.ProtectableItem;
 using Azure.Mcp.Tools.AzureBackup.Commands.ProtectedItem;
@@ -39,6 +40,9 @@ namespace Azure.Mcp.Tools.AzureBackup.Commands;
 [JsonSerializable(typeof(ContainerRegisterCommand.ContainerRegisterCommandResult))]
 [JsonSerializable(typeof(BackupStatusCommand.BackupStatusCommandResult))]
 [JsonSerializable(typeof(JobGetCommand.JobGetCommandResult))]
+[JsonSerializable(typeof(OperationGetCommand.OperationGetCommandResult))]
+[JsonSerializable(typeof(BackupOperationInfo))]
+[JsonSerializable(typeof(BackupOperationError))]
 [JsonSerializable(typeof(RecoveryPointGetCommand.RecoveryPointGetCommandResult))]
 [JsonSerializable(typeof(GovernanceFindUnprotectedCommand.GovernanceFindUnprotectedCommandResult))]
 [JsonSerializable(typeof(GovernanceImmutabilityCommand.GovernanceImmutabilityCommandResult))]
@@ -60,6 +64,8 @@ namespace Azure.Mcp.Tools.AzureBackup.Commands;
 [JsonSerializable(typeof(BackupVaultUserAssignedIdentity))]
 [JsonSerializable(typeof(ProtectedItemInfo))]
 [JsonSerializable(typeof(BackupPolicyInfo))]
+[JsonSerializable(typeof(BackupPolicyDetails))]
+[JsonSerializable(typeof(BackupPolicyDppDetails))]
 [JsonSerializable(typeof(BackupJobInfo))]
 [JsonSerializable(typeof(RecoveryPointInfo))]
 [JsonSerializable(typeof(ProtectableItemInfo))]

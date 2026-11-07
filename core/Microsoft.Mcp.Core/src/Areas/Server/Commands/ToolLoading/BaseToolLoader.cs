@@ -42,7 +42,7 @@ public abstract class BaseToolLoader(ILogger logger) : IToolLoader
         }
     }
 
-    private bool _disposed = false;
+    private TaskCompletionSource? _disposeCompletion;
 
     /// <summary>
     /// Handles requests to list all tools available in the MCP server.
@@ -93,6 +93,43 @@ public abstract class BaseToolLoader(ILogger logger) : IToolLoader
         return parametersElem.EnumerateObject().ToDictionary(prop => prop.Name, prop => (object?)prop.Value);
     }
 
+    internal static string? ResolveSampledCommandName(string? commandName, IEnumerable<Tool> availableTools)
+    {
+        if (string.IsNullOrWhiteSpace(commandName) || commandName == "Unknown")
+        {
+            return null;
+        }
+
+        return availableTools.FirstOrDefault(tool => string.Equals(tool.Name, commandName, StringComparison.OrdinalIgnoreCase))?.Name;
+    }
+
+    internal static CallToolResult CreateUnknownCommandResult(string toolName, string commandName, IEnumerable<string> availableCommandNames)
+    {
+        var names = availableCommandNames.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var availableCommands = names.Length == 0
+            ? "No commands are available for this tool in the current server configuration."
+            : $"Available commands: {string.Join(", ", names)}";
+        var selectionGuidance = names.Length == 0
+            ? string.Empty
+            : "Select the command that best matches the current intent. ";
+
+        return new CallToolResult
+        {
+            Content =
+            [
+                new TextContentBlock
+                {
+                    Text = $"""
+                        The command '{commandName}' is not available for the '{toolName}' tool.
+                        {availableCommands}
+                        {selectionGuidance}Use "learn=true" with an empty "intent" to get command descriptions and parameter schemas without executing a command.
+                        """
+                }
+            ],
+            IsError = true
+        };
+    }
+
     /// <summary>
     /// The name of the option used to pass raw MCP tool input directly to a command.
     /// </summary>
@@ -116,15 +153,29 @@ public abstract class BaseToolLoader(ILogger logger) : IToolLoader
     }
 
     /// <summary>
-    /// Disposes resources owned by this tool loader with double disposal protection.
+    /// Disposes owned resources once, sharing cleanup completion with concurrent callers.
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (_disposed)
+        var existing = Volatile.Read(ref _disposeCompletion);
+        if (existing != null)
         {
-            return;
+            return new ValueTask(existing.Task);
         }
 
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        existing = Interlocked.CompareExchange(ref _disposeCompletion, completion, null);
+        if (existing != null)
+        {
+            return new ValueTask(existing.Task);
+        }
+
+        _ = DisposeAsyncOnce(completion);
+        return new ValueTask(completion.Task);
+    }
+
+    private async Task DisposeAsyncOnce(TaskCompletionSource completion)
+    {
         try
         {
             await DisposeAsyncCore();
@@ -137,7 +188,7 @@ public abstract class BaseToolLoader(ILogger logger) : IToolLoader
         }
         finally
         {
-            _disposed = true;
+            completion.SetResult();
         }
     }
 

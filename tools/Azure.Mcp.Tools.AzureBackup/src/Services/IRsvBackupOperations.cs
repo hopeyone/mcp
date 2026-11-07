@@ -16,7 +16,8 @@ public interface IRsvBackupOperations
         string? sku,
         string? storageType,
         string? tenant,
-        CancellationToken cancellationToken);
+        bool enablePublicNetworkAccess = false,
+        CancellationToken cancellationToken = default);
 
     Task<BackupVaultInfo> GetVaultAsync(
         string vaultName,
@@ -41,6 +42,8 @@ public interface IRsvBackupOperations
         string? softDeleteRetentionDays,
         string? immutabilityState,
         string? identityType,
+        string? userAssignedIdentity,
+        string? publicNetworkAccess,
         string? tags,
         string? tenant,
         CancellationToken cancellationToken);
@@ -120,7 +123,6 @@ public interface IRsvBackupOperations
         string resourceGroup,
         string subscription,
         string? workloadType,
-        string? containerName,
         string? tenant,
         CancellationToken cancellationToken);
 
@@ -271,6 +273,8 @@ public interface IRsvBackupOperations
         string groupId,
         string? location,
         bool autoApprove,
+        string? privateDnsZoneIds,
+        string? privateDnsZoneGroupName,
         string? tenant,
         CancellationToken cancellationToken);
 
@@ -312,6 +316,17 @@ public interface IRsvBackupOperations
         string privateEndpointConnectionName,
         PrivateEndpointConnectionStatus targetStatus,
         string? description,
+        string? tenant,
+        CancellationToken cancellationToken);
+
+    Task<BackupOperationInfo> GetOperationAsync(
+        string operation,
+        string vault,
+        string resourceGroup,
+        string? subscription,
+        string? container,
+        string? protectedItem,
+        string? fabric,
         string? tenant,
         CancellationToken cancellationToken);
 }
